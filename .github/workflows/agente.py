@@ -1,18 +1,21 @@
-import os
-import google.generativeai as genai
+import os, requests
 
-api_key = os.environ["GEMINI_API_KEY"]
-comment = os.environ["COMMENT_BODY"]
+key = os.environ["GEMINI_API_KEY"].strip()
+print(f"Probando llave: {key[:8]}... largo {len(key)}")
 
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-1.5-flash")
+# 1. Probar con API nueva (para llaves AQ.)
+url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+r = requests.get(url)
+print(f"GET models status: {r.status_code}")
+print(r.text[:1000])
 
-prompt = f"Eres un auditor de código senior. Audita este repo y genera un reporte en markdown: {comment}"
+if r.status_code != 200:
+    print("\n>>> LA LLAVE NO SIRVE. Es por restricciones de la cuenta o no esta habilitada.")
+    print("Ve a console.cloud.google.com/apis/credentials con tu cuenta PERSONAL")
+    print("click en la llave AQ. > Application restrictions = None > Save")
+    exit(1)
 
-response = model.generate_content(prompt)
-
-with open("AUDIT_REPORT.md", "w", encoding="utf-8") as f:
-    f.write(response.text)
-
-print("AUDITADO OK")
-print(response.text)
+print("\n>>> LLAVE OK, ahora genera contenido")
+url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
+resp = requests.post(url2, json={"contents":[{"parts":[{"text":"di hola"}]}]})
+print(resp.status_code, resp.text[:500])
