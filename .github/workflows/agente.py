@@ -1,117 +1,73 @@
-import json
 import os
-import re
-import subprocess
 from google import genai
 
-def run_git_command(command):
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Git log: {result.stderr}")
-    return result.stdout.strip()
+api_key = os.environ.get("GEMINI_API_KEY")
+comment_body = os.environ.get("COMMENT_BODY", "")
+client = genai.Client(api_key=api_key)
 
-def get_repo_files():
-    # Obtiene la lista de archivos rastreados en el repositorio
-    return run_git_command("git ls-files").splitlines()
+# Lee todo el repo para darle contexto
+def get_repo_context():
+    contexto = ""
+    for root, _, files in os.walk("."):
+        if '.git' in root or '__pycache__' in root:
+            continue
+        for f in files:
+            if f.endswith(('.py','.js','.html','.css','.json','.md','.yml','.php','.java')):
+                try:
+                    path = os.path.join(root, f)
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                        contexto += f"\n--- {path} ---\n{file.read()[:3000]}"
+                except: pass
+    return contexto[:100000]
 
-def read_file_content(filepath):
-    if os.path.exists(filepath):
+contexto = get_repo_context()
+
+prompt = f"""
+Eres un agente de desarrollo autónomo. Estás dentro de un repo de GitHub.
+
+Petición del usuario: "{comment_body}"
+
+Contexto actual del repo:
+{contexto}
+
+INSTRUCCIONES:
+1. Si el usuario pide CREAR un archivo, genera el código completo y ponlo entre marcas: 
+   FILE: ruta/del/archivo.py
+   ```codigo```
+
+2. Si el usuario pide AUDITAR, genera un informe de vulnerabilidades y buenas prácticas.
+
+3. Si el usuario pide ARREGLAR o MEJORAR, propón el código corregido con FILE:
+
+4. Siempre explica brevemente lo que hiciste.
+
+Responde en español, para estudiantes de la CUN.
+"""
+
+print("Ejecutando agente maestro...")
+response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
+texto = response.text
+
+# Guarda la respuesta y crea los archivos que Gemini pida
+print(texto)
+
+# Lógica simple para crear archivos automáticamente si Gemini usa FILE:
+for bloque in texto.split("FILE:"):
+    if "```" in bloque:
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception:
-            return None
-    return None
+            ruta = bloque.split("\n")[0].strip()
+            codigo = bloque.split("```")[1]
+            # Limpia el nombre del lenguaje (python, javascript)
+            if "\n" in codigo:
+                codigo = "\n".join(codigo.split("\n")[1:])
+            
+            os.makedirs(os.path.dirname(ruta), exist_ok=True) if "/" in ruta else None
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(codigo)
+            print(f"Archivo creado: {ruta}")
+        except Exception as e:
+            print(f"No se pudo crear archivo: {e}")
 
-def main():
-    api_key = os.environ.get("GEMINI_API_KEY")
-    instruction = os.environ.get("COMMENT_BODY", "").replace("/gemini", "").strip()
-
-    if not instruction:
-        print("No se proporcionó ninguna instrucción.")
-        return
-
-    # 1. Obtener la estructura del proyecto y el contenido de archivos clave
-    repo_files = get_repo_files()
-    context_files = {}
-    
-    # Leer el contenido de archivos existentes para dar contexto a Gemini
-    for fpath in repo_files:
-        if not fpath.startswith(".github/") and not fpath.endswith((".png", ".jpg", ".zip", ".pdf")):
-            content = read_file_content(fpath)
-            if content is not None and len(content) < 10000: # Límite ligero de lectura
-                context_files[fpath] = content
-
-    # 2. Inicializar cliente Gemini
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""
-    Eres un agente desarrollador de software autónomo.
-    Tu objetivo es modificar, corregir o crear archivos en el repositorio según la siguiente orden:
-
-    Instrucción: {instruction}
-
-    Archivos del repositorio y su contenido actual:
-    {json.dumps(context_files, indent=2)}
-
-    Debes responder ÚNICAMENTE con un JSON válido usando el siguiente formato exacto:
-    {{
-      "changes": [
-        {{
-          "path": "ruta/al/archivo_a_editar_o_crear.ext",
-          "content": "contenido completo actualizado del archivo"
-        }}
-      ],
-      "commit_message": "mensaje descriptivo del commit"
-    }}
-    No agregues texto explicativo fuera del JSON.
-    """
-
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
-
-    # Clean Markdown formatting if output comes back wrapped in ```json
-    raw_text = response.text.strip()
-    if raw_text.startswith("```"):
-        raw_text = re.sub(r"^```[a-z]*\n", "", raw_text)
-        raw_text = re.sub(r"\n```$", "", raw_text)
-
-    try:
-        data = json.loads(raw_text)
-    except Exception as e:
-        print(f"Error al interpretar la respuesta JSON de Gemini: {e}")
-        print("Respuesta recibida:", raw_text)
-        return
-
-    changes = data.get("changes", [])
-    commit_msg = data.get("commit_message", "auto: cambios aplicados por Gemini Agent")
-
-    if not changes:
-        print("Gemini no determinó cambios a realizar.")
-        return
-
-    # 3. Aplicar las modificaciones o crear los nuevos archivos
-    for change in changes:
-        file_path = change["path"]
-        content = change["content"]
-
-        # Crear subdirectorios si la ruta los requiere
-        dirname = os.path.dirname(file_path)
-        if dirname:
-            os.makedirs(dirname, exist_ok=True)
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"Archivo modificado/creado con éxito: {file_path}")
-
-    # 4. Registrar los cambios en Git y subirlos
-    run_git_command('git config user.name "Gemini Agent Bot"')
-    run_git_command('git config user.email "gemini-bot@users.noreply.github.com"')
-    run_git_command("git add .")
-    run_git_command(f'git commit -m "{commit_msg}"')
-    run_git_command("git push")
-
-if __name__ == "__main__":
-    main()
+# Guarda siempre la respuesta como reporte
+with open("RESPUESTA_GEMINI.md", "w", encoding="utf-8") as f:
+    f.write(texto)
