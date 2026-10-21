@@ -1,25 +1,18 @@
-name: Gemini Agent
-on:
-  issue_comment:
-    types: [created]
-jobs:
-  gemini:
-    if: contains(github.event.comment.body, '/gemini')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install google-generativeai PyGithub
-      - name: Run Agent
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: python .github/workflows/agente.py
+import os
+import google.generativeai as genai
+
+api_key = os.environ["GEMINI_API_KEY"]
+comment = os.environ["COMMENT_BODY"]
+
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+prompt = f"Eres un auditor de código senior. Audita este repo y genera un reporte en markdown: {comment}"
+
+response = model.generate_content(prompt)
+
+with open("AUDIT_REPORT.md", "w", encoding="utf-8") as f:
+    f.write(response.text)
+
+print("AUDITADO OK")
+print(response.text)
