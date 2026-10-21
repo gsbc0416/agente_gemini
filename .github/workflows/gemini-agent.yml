@@ -6,7 +6,6 @@ on:
 
 jobs:
   run-agent:
-    if: contains(github.event.comment.body, '/gemini')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,8 +15,6 @@ jobs:
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -35,4 +32,4 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python .github/workflows/agent.py
+          python .github/workflows/agente.py
