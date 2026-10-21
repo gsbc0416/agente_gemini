@@ -35,4 +35,4 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python .github/scripts/agent.py
+          python .github/workflows/agent.py
