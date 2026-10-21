@@ -1,21 +1,39 @@
-import os, requests
+import os, pathlib, subprocess
+from google import genai
 
 key = os.environ["GEMINI_API_KEY"].strip()
-print(f"Probando llave: {key[:8]}... largo {len(key)}")
+target = "https://github.com/gsbc0416/gsbc-v11-fix-total"
 
-# 1. Probar con API nueva (para llaves AQ.)
-url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
-r = requests.get(url)
-print(f"GET models status: {r.status_code}")
-print(r.text[:1000])
+subprocess.run(["git", "clone", "--depth", "1", target, "target_repo"], check=False)
+# Junta todo el código
+all_code = ""
+for p in pathlib.Path("target_repo").rglob("*.py"):
+    if ".git" in str(p): continue
+    try: all_code += f"\n--- ARCHIVO: {p} ---\n" + p.read_text(errors="ignore")[:4000]
+    except: pass
+all_code = all_code[:30000]
 
-if r.status_code != 200:
-    print("\n>>> LA LLAVE NO SIRVE. Es por restricciones de la cuenta o no esta habilitada.")
-    print("Ve a console.cloud.google.com/apis/credentials con tu cuenta PERSONAL")
-    print("click en la llave AQ. > Application restrictions = None > Save")
-    exit(1)
+client = genai.Client(api_key=key)
+prompt = f"""
+Audita a fondo el proyecto GSBC v11 fix total.
+Analiza este codigo:
+{all_code}
 
-print("\n>>> LLAVE OK, ahora genera contenido")
-url2 = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}"
-resp = requests.post(url2, json={"contents":[{"parts":[{"text":"di hola"}]}]})
-print(resp.status_code, resp.text[:500])
+Entrega informe en markdown con:
+# Informe de Auditoría GSBC v11 - Fix Total
+## 1. Resumen Ejecutivo
+## 2. Arquitectura detectada
+## 3. Hallazgos Críticos (bugs, seguridad)
+## 4. Deuda técnica
+## 5. Recomendaciones priorizadas
+## 6. Conclusión y nivel de riesgo
+Se profesional, directo y tecnico.
+"""
+
+resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+report = resp.text
+open("AUDIT_REPORT.md","w",encoding="utf-8").write(report)
+print(report)
+# Guardar para que Actions lo muestre
+with open(os.environ.get("GITHUB_STEP_SUMMARY","summary.md"),"w") as f:
+    f.write(report)
