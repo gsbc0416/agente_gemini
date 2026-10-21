@@ -1,35 +1,25 @@
-name: Gemini Agent Bot
-
+name: Gemini Agent
 on:
   issue_comment:
     types: [created]
-
 jobs:
-  run-agent:
+  gemini:
+    if: contains(github.event.comment.body, '/gemini')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
-      pull-requests: write
-
     steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install google-genai
-
-      - name: Ejecutar Agente Gemini
+      - run: pip install google-generativeai PyGithub
+      - name: Run Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          python .github/workflows/agente.py
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python .github/workflows/agente.py
